@@ -166,6 +166,16 @@ Running this script will generate a plot comparing the ground truth data against
 
 Additionally, we also provide a script that makes predictions without Volume and Amount data, which can be found in [`examples/prediction_wo_vol_example.py`](examples/prediction_wo_vol_example.py).
 
+#### NASDAQ 3-Month Forecast Example
+
+To forecast U.S. markets, `examples/nasdaq_prediction.py` downloads recent daily OHLCV data for the NASDAQ Composite (^IXIC), uses `Kronos-base` to project the next 60 trading days (~3 months), and visualizes the results as a candlestick chart.
+
+```bash
+python examples/nasdaq_prediction.py
+```
+
+
+
 
 ## 🔧 Finetuning on Your Own Data (A-Share Market Example)
 
