@@ -30,3 +30,18 @@ All outputs are saved under `outputs/us_backtest/`:
 - `cum_return.png` / `cum_excess_return.png` – performance plots
 
 Set the `--universe` argument to a comma-separated list of tickers to run on a custom universe.
+
+## Run on Google Colab
+
+```python
+# clone and install
+!git clone <repo-url>
+%cd Kronos
+!pip install -r requirements.txt
+
+# launch backtest
+!python us_backtest/run_kronos_us.py --universe sp500 \
+    --start 2015-01-01 --end 2025-08-31 \
+    --k 50 --n 5 --cost_bps 15 \
+    --H 10 --lookback 90 --min_hold 5 --samples 20
+```

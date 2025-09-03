@@ -3,7 +3,8 @@ from typing import Tuple
 import numpy as np
 import torch
 
-from model import Kronos, KronosTokenizer, auto_regressive_inference
+from model import Kronos, KronosTokenizer
+from model.kronos import auto_regressive_inference
 
 
 def load_model(device: torch.device) -> Tuple[KronosTokenizer, Kronos]:

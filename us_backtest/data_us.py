@@ -33,7 +33,7 @@ def download_ohlcv(tickers: List[str], start: str, end: str) -> pd.DataFrame:
     """Download OHLCV data for tickers using yfinance."""
     data = yf.download(tickers, start=start, end=end, auto_adjust=False, progress=False, group_by="ticker")
     if isinstance(data.columns, pd.MultiIndex):
-        data = data.stack(level=1).rename_axis(index=["date", "ticker"]).reset_index()
+        data = data.stack(level=0, future_stack=True).rename_axis(index=["date", "ticker"]).reset_index()
     else:  # single ticker
         data = data.reset_index()
         data["ticker"] = tickers[0]

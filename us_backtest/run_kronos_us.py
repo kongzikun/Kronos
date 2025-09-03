@@ -9,6 +9,10 @@ import torch
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if CURRENT_DIR not in sys.path:
     sys.path.append(CURRENT_DIR)
+# Ensure repository root is importable (for `model` package)
+ROOT_DIR = os.path.dirname(CURRENT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.append(ROOT_DIR)
 
 from utils import set_seed
 from data_us import get_sp500_tickers, download_ohlcv, prepare_windows
