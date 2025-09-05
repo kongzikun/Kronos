@@ -2,7 +2,9 @@ from typing import List
 
 import numpy as np
 import pandas as pd
+import time
 import yfinance as yf
+from yfinance.exceptions import YFRateLimitError
 
 from utils import calc_time_features
 
@@ -31,15 +33,42 @@ def get_sp500_tickers(date: str | None = None) -> List[str]:
 
 def download_ohlcv(tickers: List[str], start: str, end: str) -> pd.DataFrame:
     """Download OHLCV data for tickers using yfinance."""
-    data = yf.download(tickers, start=start, end=end, auto_adjust=False, progress=False, group_by="ticker")
-    if isinstance(data.columns, pd.MultiIndex):
-        data = data.stack(level=0, future_stack=True).rename_axis(index=["date", "ticker"]).reset_index()
-    else:  # single ticker
-        data = data.reset_index()
-        data["ticker"] = tickers[0]
+    dfs: List[pd.DataFrame] = []
+    chunk_size = 50
+    for i in range(0, len(tickers), chunk_size):
+        subset = tickers[i : i + chunk_size]
+        while True:
+            try:
+                chunk = yf.download(
+                    subset,
+                    start=start,
+                    end=end,
+                    auto_adjust=False,
+                    progress=False,
+                    group_by="ticker",
+                    threads=False,
+                )
+                break
+            except YFRateLimitError:
+                time.sleep(60)
+
+        if chunk.empty:
+            continue
+        if isinstance(chunk.columns, pd.MultiIndex):
+            chunk = chunk.stack(level=0, future_stack=True).rename_axis(
+                index=["date", "ticker"]
+            ).reset_index()
+        else:  # single ticker
+            chunk = chunk.reset_index()
+            chunk["ticker"] = subset[0]
+        dfs.append(chunk)
+
+    data = pd.concat(dfs, ignore_index=True)
     data.columns = [c.lower().replace(" ", "_") for c in data.columns]
     data["amount"] = data["close"] * data["volume"]
-    data = data.set_index(["date", "ticker"])[["open", "high", "low", "close", "volume", "amount"]]
+    data = data.set_index(["date", "ticker"])[
+        ["open", "high", "low", "close", "volume", "amount"]
+    ]
     data = data.sort_index()
     return data
 
