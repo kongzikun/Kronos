@@ -2,6 +2,8 @@ from typing import Tuple
 
 import numpy as np
 import torch
+import os
+from huggingface_hub import hf_hub_download
 
 from model import Kronos, KronosTokenizer
 from model.kronos import auto_regressive_inference
@@ -9,13 +11,28 @@ from model.kronos import auto_regressive_inference
 
 def load_model(device: torch.device) -> Tuple[KronosTokenizer, Kronos]:
     """Load pretrained Kronos tokenizer and model."""
+    tokenizer_repo = "NeoQuasar/Kronos-Tokenizer-base"
+    model_repo = "NeoQuasar/Kronos-base"
+    token = os.environ.get("HF_TOKEN")
     try:
-        tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base")
-        model = Kronos.from_pretrained("NeoQuasar/Kronos-base")
+        tok_weights = hf_hub_download(repo_id=tokenizer_repo, filename="model.safetensors", token=token)
+        hf_hub_download(repo_id=tokenizer_repo, filename="config.json", token=token)
+        mdl_weights = hf_hub_download(repo_id=model_repo, filename="model.safetensors", token=token)
+        hf_hub_download(repo_id=model_repo, filename="config.json", token=token)
     except Exception as e:
-        print(
-            "Pretrained Kronos weights not found. Please download from https://huggingface.co/NeoQuasar/ and place them so that KronosTokenizer.from_pretrained and Kronos.from_pretrained can load them.")
-        raise SystemExit(1)
+        raise RuntimeError(
+            "Failed to download Kronos pretrained weights. Please run `huggingface-cli login` or download the files manually."
+        ) from e
+
+    tok_cache_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(tok_weights))))
+    mdl_cache_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(mdl_weights))))
+
+    tokenizer = KronosTokenizer.from_pretrained(
+        tokenizer_repo, cache_dir=tok_cache_dir, local_files_only=True, token=token
+    )
+    model = Kronos.from_pretrained(
+        model_repo, cache_dir=mdl_cache_dir, local_files_only=True, token=token
+    )
 
     tokenizer.eval()
     model.eval()
