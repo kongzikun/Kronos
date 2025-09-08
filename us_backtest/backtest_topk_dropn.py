@@ -6,15 +6,26 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
-from utils import (
-    annualized_return,
-    information_ratio,
-    max_drawdown,
-    plot_nav,
-    plot_excess_nav,
-    ensure_dir,
-    save_json,
-)
+try:
+    from .utils import (
+        annualized_return,
+        information_ratio,
+        max_drawdown,
+        plot_nav,
+        plot_excess_nav,
+        ensure_dir,
+        save_json,
+    )
+except Exception:  # pragma: no cover
+    from utils import (
+        annualized_return,
+        information_ratio,
+        max_drawdown,
+        plot_nav,
+        plot_excess_nav,
+        ensure_dir,
+        save_json,
+    )
 
 
 @dataclass
@@ -43,7 +54,6 @@ def backtest(
     turnover_list: List[float] = []
 
     bench_prices = benchmark.reindex(dates).fillna(method="ffill")
-    bench_nav = [1.0]
 
     prev_value = 1.0
 
@@ -103,11 +113,26 @@ def backtest(
         turnover_list.append(turnover)
         prev_value = value
 
-        bench_ret = bench_prices.loc[date] / bench_prices.loc[dates[0]]
-        bench_nav.append(bench_ret)
+        # Bench nav will be reconstructed after possible slicing to live start
+        pass
 
+    # Build NAV series aligned to trading dates (exclude the very first calendar date)
     nav_series = pd.Series(nav_list, index=dates[1:])
-    bench_series = pd.Series(bench_nav[1:], index=dates[1:])
+
+    # Determine the first live trading date (first "buy" trade date)
+    trades_df = pd.DataFrame(trade_records)
+    live_start_date = None
+    if not trades_df.empty:
+        buys = trades_df[trades_df["action"] == "buy"]
+        if not buys.empty:
+            live_start_date = buys["date"].min()
+
+    # If we have a live start date, truncate NAV and rebase benchmark from that date
+    if live_start_date is not None and live_start_date in nav_series.index:
+        nav_series = nav_series.loc[live_start_date:]
+
+    # Reconstruct benchmark NAV rebased to the first date of nav_series
+    bench_series = bench_prices.loc[nav_series.index] / bench_prices.loc[nav_series.index[0]]
     excess_nav = nav_series / bench_series
 
     nav_df = pd.DataFrame({"nav": nav_series, "bench_nav": bench_series, "excess_nav": excess_nav})
@@ -116,20 +141,24 @@ def backtest(
     plot_nav(nav_series, bench_series, f"{out_dir}/cum_return.png")
     plot_excess_nav(excess_nav, f"{out_dir}/cum_excess_return.png")
 
-    trades_df = pd.DataFrame(trade_records)
     trades_df.to_parquet(f"{out_dir}/trades.parquet")
 
     daily_ret = nav_series.pct_change().dropna()
     bench_ret = bench_series.pct_change().dropna()
     excess_ret = daily_ret - bench_ret
+
+    # Align turnover series to nav_series period
+    turnover_series = pd.Series(turnover_list, index=dates[1:])
+    turnover_mean = float(turnover_series.loc[nav_series.index].mean()) if len(nav_series) > 0 else 0.0
     summary = {
         "AER": annualized_return(excess_ret),
         "IR": information_ratio(excess_ret),
         "vol": daily_ret.std() * np.sqrt(252),
         "win_rate": float((excess_ret > 0).mean()),
         "max_drawdown": float(max_drawdown(nav_series)),
-        "turnover": float(np.mean(turnover_list)),
+        "turnover": turnover_mean,
     }
     save_json(summary, f"{out_dir}/summary.json")
 
     signals.to_parquet(f"{out_dir}/signals.parquet")
+    return summary

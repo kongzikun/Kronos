@@ -6,14 +6,29 @@ import numpy as np
 import pandas as pd
 import torch
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-if CURRENT_DIR not in sys.path:
-    sys.path.append(CURRENT_DIR)
-
-from utils import set_seed, realized_forward_avg_return, compute_accuracy_metrics, ensure_dir, save_json
-from data_us import get_sp500_tickers, download_ohlcv, prepare_windows
-from kronos_infer import load_model, predict_batch
-from backtest_topk_dropn import backtest
+# Prefer package-relative imports (python -m us_backtest.run_kronos_us); fallback for direct script run
+try:
+    from .utils import (
+        set_seed,
+        realized_forward_avg_return,
+        compute_accuracy_metrics,
+        ensure_dir,
+        save_json,
+    )
+    from .data_us import get_sp500_tickers, download_ohlcv, prepare_windows
+    from .kronos_infer import load_model, predict_batch
+    from .backtest_topk_dropn import backtest
+except Exception:  # pragma: no cover - direct script fallback
+    from utils import (
+        set_seed,
+        realized_forward_avg_return,
+        compute_accuracy_metrics,
+        ensure_dir,
+        save_json,
+    )
+    from data_us import get_sp500_tickers, download_ohlcv, prepare_windows
+    from kronos_infer import load_model, predict_batch
+    from backtest_topk_dropn import backtest
 
 
 def main():

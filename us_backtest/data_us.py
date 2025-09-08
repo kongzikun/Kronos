@@ -4,7 +4,10 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from utils import calc_time_features
+try:
+    from .utils import calc_time_features
+except Exception:  # pragma: no cover
+    from utils import calc_time_features
 
 
 SP500_FALLBACK = [
