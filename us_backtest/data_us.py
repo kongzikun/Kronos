@@ -3,6 +3,14 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import os
+from pathlib import Path
+from datetime import datetime
+try:
+    from pandas_datareader import data as pdr  # optional: Stooq fallback
+    _HAS_PDR = True
+except Exception:
+    _HAS_PDR = False
 import time
 
 try:
@@ -96,6 +104,154 @@ def download_ohlcv(tickers: List[str], start: str, end: str, rate_limit_sec: flo
 
     data = pd.concat(frames, axis=0).sort_index()
     return data
+
+
+def _normalize_ohlcv_df(df: pd.DataFrame, ticker: Optional[str] = None) -> Optional[pd.DataFrame]:
+    """Normalize an OHLCV DataFrame to MultiIndex [date, ticker] with lowercase columns.
+
+    Accepts typical columns: Date/date, Open/High/Low/Close/Adj Close/Volume. Returns None if unusable.
+    """
+    if df is None or df.empty:
+        return None
+    df = df.copy()
+    if 'date' not in [c.lower() for c in df.columns] and not isinstance(df.index, pd.DatetimeIndex):
+        # Try to parse any 'Date' column
+        for c in df.columns:
+            if str(c).lower() == 'date':
+                df[c] = pd.to_datetime(df[c])
+                df = df.set_index(c)
+                break
+    if not isinstance(df.index, pd.DatetimeIndex):
+        # Maybe the index is already datetime-like
+        try:
+            df.index = pd.to_datetime(df.index)
+        except Exception:
+            return None
+    df.index.name = 'date'
+    # Lowercase and underscore
+    df.columns = [str(c).lower().replace(' ', '_') for c in df.columns]
+    # Ensure close
+    if 'close' not in df.columns:
+        if 'adj_close' in df.columns:
+            df['close'] = df['adj_close']
+        else:
+            return None
+    if 'volume' not in df.columns:
+        df['volume'] = 0.0
+    if ticker is None:
+        # Try infer ticker from a column
+        if 'ticker' in df.columns:
+            df = df.reset_index().set_index(['date', 'ticker']).sort_index()
+        else:
+            return None
+    else:
+        df['ticker'] = ticker
+        df = df.reset_index().set_index(['date', 'ticker']).sort_index()
+    df['amount'] = df['close'].astype(float) * df['volume'].astype(float)
+    keep_cols = [c for c in ['open', 'high', 'low', 'close', 'volume', 'amount'] if c in df.columns]
+    return df[keep_cols]
+
+
+def load_offline_ohlcv(path: str, tickers: Optional[List[str]], start: str, end: str) -> pd.DataFrame:
+    """Load OHLCV from local CSV/Parquet files.
+
+    Supports two layouts:
+      1) Directory with per-ticker files: AAPL.csv or AAPL.parquet, etc.
+      2) Single file with columns including 'date' and 'ticker'.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Offline data path does not exist: {path}")
+
+    frames: List[pd.DataFrame] = []
+    start_dt = pd.to_datetime(start)
+    end_dt = pd.to_datetime(end)
+
+    if p.is_dir():
+        files = list(p.glob('*.csv')) + list(p.glob('*.parquet'))
+        if not files:
+            raise RuntimeError(f"No CSV/Parquet files found in {path}")
+        # If tickers not provided, infer from filenames
+        file_map = {f.stem.upper(): f for f in files}
+        if not tickers:
+            tickers = sorted(file_map.keys())
+        for t in tickers:
+            f = file_map.get(t.upper())
+            if f is None:
+                continue
+            try:
+                if f.suffix.lower() == '.csv':
+                    df = pd.read_csv(f)
+                else:
+                    df = pd.read_parquet(f)
+            except Exception:
+                continue
+            ndf = _normalize_ohlcv_df(df, ticker=t)
+            if ndf is None or ndf.empty:
+                continue
+            ndf = ndf.loc[(ndf.index.get_level_values(0) >= start_dt) & (ndf.index.get_level_values(0) <= end_dt)]
+            frames.append(ndf)
+    else:
+        # Single file
+        if p.suffix.lower() == '.csv':
+            df = pd.read_csv(p)
+        else:
+            df = pd.read_parquet(p)
+        ndf = _normalize_ohlcv_df(df, ticker=None)
+        if ndf is None or ndf.empty:
+            raise RuntimeError("Offline file missing required columns (date,ticker,close[or adj_close]).")
+        # Filter tickers if provided
+        if tickers:
+            idx = ndf.index
+            ndf = ndf.loc[idx.get_level_values(1).isin([t.upper() for t in tickers])]
+        ndf = ndf.loc[(ndf.index.get_level_values(0) >= start_dt) & (ndf.index.get_level_values(0) <= end_dt)]
+        frames.append(ndf)
+
+    if not frames:
+        raise RuntimeError("No offline OHLCV data matched requested tickers and date range.")
+    return pd.concat(frames, axis=0).sort_index()
+
+
+def download_ohlcv_stooq(tickers: List[str], start: str, end: str) -> pd.DataFrame:
+    """Download daily OHLCV from Stooq via pandas-datareader.
+
+    Note: Stooq uses descending dates; we normalize and stack to MultiIndex.
+    """
+    if not _HAS_PDR:
+        raise RuntimeError("pandas_datareader not installed; install to use data_source=stooq")
+    frames = []
+    start_dt = datetime.fromisoformat(start)
+    end_dt = datetime.fromisoformat(end)
+    for t in tickers:
+        try:
+            df = pdr.DataReader(t, 'stooq', start=start_dt, end=end_dt)
+        except Exception:
+            continue
+        if df is None or df.empty:
+            continue
+        df = df.sort_index()
+        df = df.rename(columns=str.lower)
+        df.index.name = 'date'
+        if 'close' not in df.columns:
+            continue
+        if 'volume' not in df.columns:
+            df['volume'] = 0.0
+        df['ticker'] = t
+        df['amount'] = df['close'].astype(float) * df['volume'].astype(float)
+        keep_cols = [c for c in ['open', 'high', 'low', 'close', 'volume', 'amount', 'ticker'] if c in df.columns]
+        df = df[keep_cols].reset_index().set_index(['date', 'ticker']).sort_index()
+        frames.append(df)
+    if not frames:
+        raise RuntimeError("No OHLCV data from Stooq for requested tickers/date range")
+    return pd.concat(frames, axis=0).sort_index()
+
+
+def infer_tickers_from_offline(path: str) -> List[str]:
+    p = Path(path)
+    if not p.exists() or not p.is_dir():
+        return []
+    files = list(p.glob('*.csv')) + list(p.glob('*.parquet'))
+    return sorted(set(f.stem.upper() for f in files))
 
 
 def prepare_windows(df: pd.DataFrame, lookback: int, horizon: int, batch_size: int = 64):

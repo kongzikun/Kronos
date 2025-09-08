@@ -46,17 +46,51 @@ def main():
     parser.add_argument("--out_dir", default="outputs/us_backtest")
     parser.add_argument("--yf_rate_limit", type=float, default=0.5, help="Sleep seconds between Yahoo requests to reduce 429s")
     parser.add_argument("--seed", type=int, default=42)
+    # Data source options
+    parser.add_argument("--data_source", choices=["yahoo", "offline", "stooq"], default="yahoo",
+                        help="Price source: yahoo (yfinance), offline (CSV/Parquet), stooq (pandas-datareader)")
+    parser.add_argument("--data_path", default="", help="Path to offline data dir or file when data_source=offline")
+    parser.add_argument("--tickers_file", default="", help="Optional file with tickers (one per line); overrides --universe when set")
     args = parser.parse_args()
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if args.universe == "sp500":
-        tickers = get_sp500_tickers()
+    # Resolve tickers
+    if args.tickers_file:
+        with open(args.tickers_file, 'r') as f:
+            tickers = [line.strip() for line in f if line.strip()]
+    elif args.universe == "sp500":
+        if args.data_source == "offline" and args.data_path:
+            try:
+                from .data_us import infer_tickers_from_offline
+            except Exception:
+                from data_us import infer_tickers_from_offline
+            tickers = infer_tickers_from_offline(args.data_path)
+            if not tickers:
+                raise SystemExit("offline mode with universe=sp500 requires data_path containing per-ticker files")
+        else:
+            tickers = get_sp500_tickers()
     else:
-        tickers = args.universe.split(",")
+        tickers = [t.strip() for t in args.universe.split(",") if t.strip()]
 
-    prices = download_ohlcv(tickers, args.start, args.end, rate_limit_sec=args.yf_rate_limit)
+    # Fetch prices according to data_source
+    if args.data_source == "yahoo":
+        prices = download_ohlcv(tickers, args.start, args.end, rate_limit_sec=args.yf_rate_limit)
+    elif args.data_source == "offline":
+        try:
+            from .data_us import load_offline_ohlcv
+        except Exception:
+            from data_us import load_offline_ohlcv
+        prices = load_offline_ohlcv(args.data_path, tickers, args.start, args.end)
+    elif args.data_source == "stooq":
+        try:
+            from .data_us import download_ohlcv_stooq
+        except Exception:
+            from data_us import download_ohlcv_stooq
+        prices = download_ohlcv_stooq(tickers, args.start, args.end)
+    else:
+        raise SystemExit(f"Unknown data_source: {args.data_source}")
     tokenizer, model = load_model(device)
 
     signal_records = []
@@ -77,9 +111,20 @@ def main():
     # Benchmark: try ^GSPC; if unavailable (network blocked or rate-limited),
     # fall back to equal-weighted universe close as a proxy.
     try:
-        bench = download_ohlcv(["^GSPC"], args.start, args.end).xs("^GSPC", level=1)["close"]
+        if args.data_source == "yahoo":
+            bench = download_ohlcv(["^GSPC"], args.start, args.end).xs("^GSPC", level=1)["close"]
+        elif args.data_source == "stooq":
+            try:
+                from .data_us import download_ohlcv_stooq
+            except Exception:
+                from data_us import download_ohlcv_stooq
+            # Stooq symbol for S&P 500 index can vary; '^SPX' or '^US500' often not available.
+            # Fall back to EW proxy if fetch fails.
+            bench = download_ohlcv_stooq(["^SPX"], args.start, args.end).xs("^SPX", level=1)["close"]
+        else:
+            raise RuntimeError("No online benchmark in offline mode")
     except Exception:
-        print("[warn] Failed to fetch ^GSPC from Yahoo. Using equal-weight universe proxy as benchmark.")
+        print("[warn] Failed to fetch benchmark. Using equal-weight universe proxy as benchmark.")
         bench = prices["close"].unstack("ticker").mean(axis=1)
 
     summary = backtest(

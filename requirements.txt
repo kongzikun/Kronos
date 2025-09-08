@@ -8,3 +8,5 @@ matplotlib==3.9.3
 pandas==2.2.2
 tqdm==4.67.1
 yfinance==0.2.48
+pyarrow
+pandas_datareader
