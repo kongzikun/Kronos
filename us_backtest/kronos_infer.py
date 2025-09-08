@@ -76,7 +76,12 @@ def predict_batch(
     H = y_stamp.shape[1]
     with torch.no_grad():
         # Optional AMP for throughput; safe as we de-norm on CPU/NumPy
-        amp_ctx = torch.cuda.amp.autocast if device.type == "cuda" else torch.cpu.amp.autocast
+        try:
+            from torch.amp import autocast as _autocast
+            amp_ctx = lambda enabled: _autocast(device_type=("cuda" if device.type == "cuda" else "cpu"), enabled=enabled)
+        except Exception:
+            # Fallback to legacy namespaces if available
+            amp_ctx = (torch.cuda.amp.autocast if device.type == "cuda" else torch.cpu.amp.autocast)
         with amp_ctx(enabled=False):
             preds_full = auto_regressive_inference(
                 tokenizer,

@@ -46,6 +46,7 @@ def main():
     parser.add_argument("--out_dir", default="outputs/us_backtest")
     parser.add_argument("--yf_rate_limit", type=float, default=0.5, help="Sleep seconds between Yahoo requests to reduce 429s")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto", help="Computation device selection")
     parser.add_argument("--tokenizer_path", default="", help="Optional local path to KronosTokenizer weights")
     parser.add_argument("--model_path", default="", help="Optional local path to Kronos model weights")
     # Data source options
@@ -56,7 +57,12 @@ def main():
     args = parser.parse_args()
 
     set_seed(args.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.device == "cpu":
+        device = torch.device("cpu")
+    elif args.device == "cuda":
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Resolve tickers
     if args.tickers_file:
@@ -99,6 +105,22 @@ def main():
         tokenizer_path=(args.tokenizer_path or None),
         model_path=(args.model_path or None),
     )
+
+    # If CUDA is selected but kernels are incompatible (e.g., arch too new),
+    # detect via a simple GPU op and fallback to CPU automatically.
+    if device.type == "cuda":
+        try:
+            x_smoke = torch.randn(8, device=device)
+            x_smoke = torch.clip(x_smoke, -1, 1)
+            torch.cuda.synchronize()
+        except Exception as e:
+            print(f"[warn] CUDA smoke test failed ({e}); falling back to CPU.")
+            device = torch.device("cpu")
+            tokenizer, model = load_model(
+                device,
+                tokenizer_path=(args.tokenizer_path or None),
+                model_path=(args.model_path or None),
+            )
 
     signal_records = []
     for ticker, x, x_stamp, y_stamp, dates in prepare_windows(prices, args.lookback, args.H):
