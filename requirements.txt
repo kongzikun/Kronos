@@ -10,3 +10,4 @@ tqdm==4.67.1
 yfinance==0.2.48
 pyarrow
 pandas_datareader
+safetensors
