@@ -1,17 +1,10 @@
-from .kronos import KronosTokenizer, Kronos, KronosPredictor
+# Re-export core classes/functions so both
+# `from model.kronos import ...` and `from model import ...` work.
+from .kronos import Kronos, KronosTokenizer, auto_regressive_inference
 
-model_dict = {
-    'kronos_tokenizer': KronosTokenizer,
-    'kronos': Kronos,
-    'kronos_predictor': KronosPredictor
-}
-
-
-def get_model_class(model_name):
-    if model_name in model_dict:
-        return model_dict[model_name]
-    else:
-        print(f"Model {model_name} not found in model_dict")
-        raise NotImplementedError
-
+__all__ = [
+    "Kronos",
+    "KronosTokenizer",
+    "auto_regressive_inference",
+]
 
