@@ -3,6 +3,7 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import time
 
 try:
     from .utils import calc_time_features
@@ -32,7 +33,7 @@ def get_sp500_tickers(date: Optional[str] = None) -> List[str]:
         return SP500_FALLBACK
 
 
-def download_ohlcv(tickers: List[str], start: str, end: str) -> pd.DataFrame:
+def download_ohlcv(tickers: List[str], start: str, end: str, rate_limit_sec: float = 0.5) -> pd.DataFrame:
     """Download OHLCV data for tickers using yfinance.
 
     - Fetches per-ticker to avoid brittle MultiIndex parsing and partial failures.
@@ -82,6 +83,10 @@ def download_ohlcv(tickers: List[str], start: str, end: str) -> pd.DataFrame:
         keep_cols = [c for c in ["open", "high", "low", "close", "volume", "amount", "ticker"] if c in tdf.columns]
         tdf = tdf[keep_cols].reset_index().set_index(["date", "ticker"]).sort_index()
         frames.append(tdf)
+
+        # Rate limit to avoid Yahoo 429
+        if rate_limit_sec and rate_limit_sec > 0:
+            time.sleep(rate_limit_sec)
 
     if not frames:
         raise RuntimeError(

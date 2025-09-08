@@ -44,6 +44,7 @@ def main():
     parser.add_argument("--min_hold", type=int, default=5)
     parser.add_argument("--samples", type=int, default=20)
     parser.add_argument("--out_dir", default="outputs/us_backtest")
+    parser.add_argument("--yf_rate_limit", type=float, default=0.5, help="Sleep seconds between Yahoo requests to reduce 429s")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -55,7 +56,7 @@ def main():
     else:
         tickers = args.universe.split(",")
 
-    prices = download_ohlcv(tickers, args.start, args.end)
+    prices = download_ohlcv(tickers, args.start, args.end, rate_limit_sec=args.yf_rate_limit)
     tokenizer, model = load_model(device)
 
     signal_records = []
