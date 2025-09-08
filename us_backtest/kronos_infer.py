@@ -8,13 +8,18 @@ from model.kronos import auto_regressive_inference
 
 
 def load_model(device: torch.device) -> Tuple[KronosTokenizer, Kronos]:
-    """Load pretrained Kronos tokenizer and model."""
+    """Load pretrained Kronos tokenizer and model.
+
+    Weights are fetched from the Hugging Face Hub if not already cached.
+    """
     try:
         tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base")
         model = Kronos.from_pretrained("NeoQuasar/Kronos-base")
     except Exception as e:
         print(
-            "Pretrained Kronos weights not found. Please download from https://huggingface.co/NeoQuasar/ and place them so that KronosTokenizer.from_pretrained and Kronos.from_pretrained can load them.")
+            "Failed to load pretrained Kronos weights. Ensure all dependencies (e.g., 'safetensors') are installed and that the model identifiers are correct."
+        )
+        print(f"Original error: {e}")
         raise SystemExit(1)
 
     tokenizer.eval()
