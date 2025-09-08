@@ -46,6 +46,8 @@ def main():
     parser.add_argument("--out_dir", default="outputs/us_backtest")
     parser.add_argument("--yf_rate_limit", type=float, default=0.5, help="Sleep seconds between Yahoo requests to reduce 429s")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--tokenizer_path", default="", help="Optional local path to KronosTokenizer weights")
+    parser.add_argument("--model_path", default="", help="Optional local path to Kronos model weights")
     # Data source options
     parser.add_argument("--data_source", choices=["yahoo", "offline", "stooq"], default="yahoo",
                         help="Price source: yahoo (yfinance), offline (CSV/Parquet), stooq (pandas-datareader)")
@@ -91,7 +93,12 @@ def main():
         prices = download_ohlcv_stooq(tickers, args.start, args.end)
     else:
         raise SystemExit(f"Unknown data_source: {args.data_source}")
-    tokenizer, model = load_model(device)
+    # Load model (supports local paths via CLI or env)
+    tokenizer, model = load_model(
+        device,
+        tokenizer_path=(args.tokenizer_path or None),
+        model_path=(args.model_path or None),
+    )
 
     signal_records = []
     for ticker, x, x_stamp, y_stamp, dates in prepare_windows(prices, args.lookback, args.H):

@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Optional
 import os
 import sys
 
@@ -15,23 +15,28 @@ if _ROOT not in sys.path:
 from model.kronos import Kronos, KronosTokenizer, auto_regressive_inference
 
 
-def load_model(device: torch.device) -> Tuple[KronosTokenizer, Kronos]:
+def load_model(device: torch.device,
+               tokenizer_path: Optional[str] = None,
+               model_path: Optional[str] = None) -> Tuple[KronosTokenizer, Kronos]:
     """Load pretrained Kronos tokenizer and model.
 
     If weights are not available locally (HuggingFace cache or repo path), prints
     a clear instruction and exits to avoid using random weights.
     """
+    tok_src = os.environ.get("KRONOS_TOKENIZER_PATH") or tokenizer_path or "NeoQuasar/Kronos-Tokenizer-base"
+    mdl_src = os.environ.get("KRONOS_MODEL_PATH") or model_path or "NeoQuasar/Kronos-base"
     try:
-        tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base")
-        model = Kronos.from_pretrained("NeoQuasar/Kronos-base")
-    except Exception:
+        tokenizer = KronosTokenizer.from_pretrained(tok_src)
+        model = Kronos.from_pretrained(mdl_src)
+    except Exception as e:
         print(
-            "[Kronos] Pretrained weights not found.\n"
-            "Please download: \n"
-            "  - Tokenizer: NeoQuasar/Kronos-Tokenizer-base\n"
-            "  - Model:     NeoQuasar/Kronos-base\n"
-            "From: https://huggingface.co/NeoQuasar/ \n"
-            "And ensure they are loadable by KronosTokenizer.from_pretrained / Kronos.from_pretrained."
+            "[Kronos] Failed to load pretrained weights.\n"
+            f"Tried tokenizer: {tok_src}\nTried model: {mdl_src}\n"
+            "Options:\n"
+            "  - Set env KRONOS_TOKENIZER_PATH / KRONOS_MODEL_PATH to local directories, or\n"
+            "  - Pass --tokenizer_path / --model_path via CLI (run_kronos_us), or\n"
+            "  - Ensure network access to Hugging Face repositories.\n"
+            f"Underlying error: {e}"
         )
         raise SystemExit(1)
 
