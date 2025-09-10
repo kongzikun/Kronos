@@ -65,7 +65,7 @@ def backtest_longshort(
     turnover_list: List[float] = []
     prev_value = 1.0
 
-    bench_prices = benchmark.reindex(dates).fillna(method="ffill")
+    bench_prices = benchmark.reindex(dates).ffill()
 
     for i in range(1, len(dates)):
         date = dates[i]
@@ -179,20 +179,21 @@ def backtest_longshort(
     trades_df = pd.DataFrame(trade_records)
     trades_df.to_parquet(f"{out_dir}/trades.parquet")
 
+    # Portfolio daily returns
     daily_ret = nav_series.pct_change().dropna()
-    bench_ret = bench_series.pct_change().dropna()
-    excess_ret = daily_ret - bench_ret
+    # Excess returns should compound via ratio of NAVs, not difference of returns
+    # This avoids invalid negative factors that can lead to NaN when annualizing.
+    excess_nav_ret = excess_nav.pct_change().dropna()
 
     turnover_series = pd.Series(turnover_list, index=dates[1:])
     turnover_mean = float(turnover_series.loc[nav_series.index].mean()) if len(nav_series) > 0 else 0.0
     summary = {
-        "AER": annualized_return(excess_ret),
-        "IR": information_ratio(excess_ret),
+        "AER": annualized_return(excess_nav_ret),
+        "IR": information_ratio(excess_nav_ret),
         "vol": daily_ret.std() * np.sqrt(252),
-        "win_rate": float((excess_ret > 0).mean()),
+        "win_rate": float((excess_nav_ret > 0).mean()),
         "max_drawdown": float(max_drawdown(nav_series)),
         "turnover": turnover_mean,
     }
     save_json(summary, f"{out_dir}/summary.json")
     return summary
-
