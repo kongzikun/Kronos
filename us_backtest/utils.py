@@ -40,19 +40,30 @@ def calc_time_features(dt_index: pd.DatetimeIndex) -> pd.DataFrame:
     return df[["minute", "hour", "weekday", "day", "month"]]
 
 
-def annualized_return(excess_returns: Iterable[float]) -> float:
-    arr = np.array(list(excess_returns))
-    if len(arr) == 0:
+def annualized_return(excess_returns: Iterable[float], periods_per_year: int = 252) -> float:
+    """Geometric annualized return from periodic excess returns.
+
+    periods_per_year: 252 for US equities; 365 for crypto (24/7).
+    """
+    arr = np.array(list(excess_returns), dtype=float)
+    if arr.size == 0:
         return 0.0
     prod = np.prod(1 + arr)
-    return prod ** (252 / len(arr)) - 1
+    # Guard: if prod <= 0 (can happen with difference returns), return NaN
+    if prod <= 0:
+        return float("nan")
+    return prod ** (periods_per_year / arr.size) - 1
 
 
-def information_ratio(excess_returns: Iterable[float]) -> float:
-    arr = np.array(list(excess_returns))
-    if arr.std() == 0:
+def information_ratio(excess_returns: Iterable[float], periods_per_year: int = 252) -> float:
+    """Annualized IR from periodic excess returns.
+
+    periods_per_year: 252 for US equities; 365 for crypto.
+    """
+    arr = np.array(list(excess_returns), dtype=float)
+    if arr.size == 0 or arr.std() == 0:
         return 0.0
-    return arr.mean() / arr.std() * math.sqrt(252)
+    return arr.mean() / arr.std() * math.sqrt(periods_per_year)
 
 
 def max_drawdown(nav: Iterable[float]) -> float:

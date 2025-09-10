@@ -188,9 +188,10 @@ def backtest_longshort(
     turnover_series = pd.Series(turnover_list, index=dates[1:])
     turnover_mean = float(turnover_series.loc[nav_series.index].mean()) if len(nav_series) > 0 else 0.0
     summary = {
-        "AER": annualized_return(excess_nav_ret),
-        "IR": information_ratio(excess_nav_ret),
-        "vol": daily_ret.std() * np.sqrt(252),
+        # Crypto runs 24/7 → use 365 periods/year
+        "AER": annualized_return(excess_nav_ret, periods_per_year=365),
+        "IR": information_ratio(excess_nav_ret, periods_per_year=365),
+        "vol": daily_ret.std() * np.sqrt(365),
         "win_rate": float((excess_nav_ret > 0).mean()),
         "max_drawdown": float(max_drawdown(nav_series)),
         "turnover": turnover_mean,
