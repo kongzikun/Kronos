@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import pandas as pd
 import torch
+from tqdm import tqdm
 
 # Prefer package-relative imports (python -m us_backtest.run_kronos_us); fallback for direct script run
 try:
@@ -123,6 +124,23 @@ def main():
                 model_path=(args.model_path or None),
             )
 
+    # Estimate total number of signal dates for progress bar
+    try:
+        # prices is MultiIndex [date, ticker]
+        total_est = 0
+        for tk in prices.index.get_level_values(1).unique():
+            tdf = prices.xs(tk, level=1)
+            n = len(tdf.dropna())
+            if n >= (args.lookback + args.H):
+                # t runs from (lookback-1) .. (n-H-1) inclusive; stride filter applied
+                span = (n - args.H) - (args.lookback - 1)
+                if span > 0:
+                    total_est += max(0, span + 0) // max(1, args.stride)
+    except Exception:
+        total_est = None
+
+    pbar = tqdm(total=total_est, desc="Generating signals", dynamic_ncols=True) if total_est is not None else tqdm(desc="Generating signals", dynamic_ncols=True)
+
     signal_records = []
     for ticker, x, x_stamp, y_stamp, dates in prepare_windows(prices, args.lookback, args.H, stride=args.stride):
         preds = predict_batch(tokenizer, model, x, x_stamp, y_stamp, device, args.samples, 1.0, 0.9)
@@ -132,11 +150,19 @@ def main():
         ret = (mean_close - close_t) / close_t
         df_sig = pd.DataFrame({"date": dates, "ticker": ticker, "signal": ret})
         signal_records.append(df_sig)
+        try:
+            pbar.update(len(dates))
+        except Exception:
+            pass
 
     if not signal_records:
         raise SystemExit("No signals generated. Check data availability.")
 
     signal_df = pd.concat(signal_records).set_index(["date", "ticker"]).unstack("ticker")["signal"].sort_index()
+    try:
+        pbar.close()
+    except Exception:
+        pass
 
     # Benchmark: try ^GSPC; if unavailable (network blocked or rate-limited),
     # fall back to equal-weighted universe close as a proxy.

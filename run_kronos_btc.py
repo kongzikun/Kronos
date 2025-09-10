@@ -36,7 +36,7 @@ except Exception as e:
     raise
 
 try:
-    from sklearn.metrics import (
+from sklearn.metrics import (
         mean_absolute_error,
         mean_squared_error,
         r2_score,
@@ -44,13 +44,14 @@ try:
         average_precision_score,
         balanced_accuracy_score,
         confusion_matrix,
-    )
+)
 except Exception as e:
     print("scikit-learn is required for accuracy metrics. Please install: pip install scikit-learn", file=sys.stderr)
     raise
 
 # Kronos imports (as specified)
 from model import Kronos, KronosTokenizer, KronosPredictor
+from tqdm import tqdm
 
 
 def ensure_dir(path: str) -> None:
@@ -467,8 +468,10 @@ def main():
     dates = df.index
     mu_hat = pd.Series(index=dates, dtype=float)
 
-    # Forecast loop
-    for i in range(lookback, len(df) - H):
+    # Forecast loop with progress bar
+    total_steps = max(0, (len(df) - H) - lookback)
+    prog = tqdm(range(lookback, len(df) - H), total=total_steps, desc="Forecasting (BTC)", dynamic_ncols=True)
+    for i in prog:
         hist = df.iloc[i - lookback:i]
         x_timestamp = hist.index.to_series()
         future_idx = df.index[i+1:i+1+H]
@@ -493,6 +496,7 @@ def main():
         except Exception as e:
             # Skip failed dates; leave NaN
             continue
+    prog.close()
 
     # Labels
     y_true_overlap = compute_labels_avg5(closes, step=1)
