@@ -167,6 +167,44 @@ Running this script will generate a plot comparing the ground truth data against
 Additionally, we also provide a script that makes predictions without Volume and Amount data, which can be found in [`examples/prediction_wo_vol_example.py`](examples/prediction_wo_vol_example.py).
 
 
+## 📊 BTC Daily Run Script
+
+We provide a reproducible script to forecast BTC-USD daily closes using Kronos-base + Tokenizer-base, run a simple long-or-flat strategy, and generate comprehensive accuracy diagnostics.
+
+- Model: `NeoQuasar/Kronos-base` with `NeoQuasar/Kronos-Tokenizer-base`
+- Horizon: `H=5` (next 5 trading days)
+- Lookback: `480`
+- Thresholds: `q_hi=0.60`, `q_lo=0.57` (quantiles estimated on IS)
+- Min hold: `2` days
+- Transaction cost: `10` bps per position change
+- Data source: yfinance (BTC-USD daily). If offline, supply `--csv_path` with columns `[date,open,high,low,close,volume]`.
+- IS/OOS: IS=`2017-01-01`..`2021-12-31`, OOS=`2022-01-01`..latest by default
+
+Run:
+
+```shell
+python run_kronos_btc.py \
+  --is_start 2017-01-01 --is_end 2021-12-31 \
+  --oos_start 2022-01-01 --oos_end auto \
+  --lookback 480 --H 5 --q_hi 0.60 --q_lo 0.57 \
+  --min_hold 2 --cost_bp 10 --eps 0.005
+```
+
+Outputs are saved under `./artifacts/YYYYMMDD_HHMM/`:
+
+- `daily_timeseries.parquet`: date-indexed panel with `close, ret_1d, mu_hat, q_hi, q_lo, position, strat_ret_gross, trade_cost, strat_ret_net, equity_strat, equity_bh, y_true_avg5_nonoverlap, y_true_avg5_overlap`.
+- `summary.csv`: summary metrics for IS/OOS/ALL (MAE, RMSE, R2, IC, IC_t, RankIC, RankIC_t, DA_raw, DA_eps, DA_eps_adapt, BA, ROC_AUC, PR_AUC).
+- `accuracy_report.csv`: long-format `[segment, metric, value, notes]` with both non-overlap (primary) and overlap (secondary) labels.
+- Plots: `equity_vs_bh.png`, `drawdown.png`, `muhat_ic.png`, `position_and_mu.png`, `forecast_scatter.png`, `calibration_by_decile.png`, `confusion_matrix.png`.
+
+Notes on labels and metrics:
+
+- Primary label `y_true_avg5_nonoverlap`: `(mean(close[t+1..t+5]) - close[t]) / close[t]` using non-overlapping anchors; used for IC/RankIC and primary accuracy.
+- Secondary label `y_true_avg5_overlap`: overlapping version (daily samples); provided for additional classification diagnostics and clearly tagged as `overlap`.
+- Directional metrics interpret `y_true>0` as positive. `DA_eps` ignores labels with magnitude below `EPS=0.005`. Adaptive `EPS_adapt=0.25*rolling_std(y_true)` floored at 0.002.
+- Warning: overlapping labels inflate sample size and serial correlation; treat with care.
+
+
 ## 🔧 Finetuning on Your Own Data (A-Share Market Example)
 
 We provide a complete pipeline for finetuning Kronos on your own datasets. As an example, we demonstrate how to use [Qlib](https://github.com/microsoft/qlib) to prepare data from the Chinese A-share market and conduct a simple backtest.

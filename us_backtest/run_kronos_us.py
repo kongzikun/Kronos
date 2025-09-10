@@ -54,6 +54,7 @@ def main():
                         help="Price source: yahoo (yfinance), offline (CSV/Parquet), stooq (pandas-datareader)")
     parser.add_argument("--data_path", default="", help="Path to offline data dir or file when data_source=offline")
     parser.add_argument("--tickers_file", default="", help="Optional file with tickers (one per line); overrides --universe when set")
+    parser.add_argument("--stride", type=int, default=1, help="Only generate a signal every `stride` days to speed up")
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -123,7 +124,7 @@ def main():
             )
 
     signal_records = []
-    for ticker, x, x_stamp, y_stamp, dates in prepare_windows(prices, args.lookback, args.H):
+    for ticker, x, x_stamp, y_stamp, dates in prepare_windows(prices, args.lookback, args.H, stride=args.stride):
         preds = predict_batch(tokenizer, model, x, x_stamp, y_stamp, device, args.samples, 1.0, 0.9)
         # preds shape: [batch, H, features]; average close over horizon as per paper
         mean_close = preds[:, :, 3].mean(axis=1)

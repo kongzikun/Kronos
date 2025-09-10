@@ -96,6 +96,22 @@ def download_ohlcv(tickers: List[str], start: str, end: str, rate_limit_sec: flo
         if rate_limit_sec and rate_limit_sec > 0:
             time.sleep(rate_limit_sec)
 
+    if not frames and _HAS_PDR:
+        # Fallback to Stooq via pandas-datareader (best-effort)
+        start_dt = pd.to_datetime(start)
+        end_dt = pd.to_datetime(end)
+        for t in tickers:
+            try:
+                sdf = pdr.DataReader(t, "stooq", start_dt, end_dt)
+                # Stooq returns descending index; flip
+                sdf = sdf.sort_index()
+                ndf = _normalize_ohlcv_df(sdf, ticker=t)
+                if ndf is None or ndf.empty:
+                    continue
+                frames.append(ndf)
+            except Exception:
+                continue
+
     if not frames:
         raise RuntimeError(
             "No OHLCV data downloaded for any ticker. Possible reasons: network blocked, rate limited by Yahoo, or invalid symbols.\n"
@@ -104,6 +120,32 @@ def download_ohlcv(tickers: List[str], start: str, end: str, rate_limit_sec: flo
 
     data = pd.concat(frames, axis=0).sort_index()
     return data
+
+
+def infer_tickers_from_offline(path: str) -> List[str]:
+    """Infer tickers from an offline directory or a single file.
+
+    - If directory: return sorted list of file stems for *.csv/*.parquet
+    - If single file: expect a column 'ticker' and return its unique values
+    """
+    p = Path(path)
+    if not p.exists():
+        return []
+    if p.is_dir():
+        files = list(p.glob('*.csv')) + list(p.glob('*.parquet'))
+        return sorted({f.stem.upper() for f in files})
+    else:
+        try:
+            if p.suffix.lower() == '.csv':
+                df = pd.read_csv(p, nrows=100000)
+            else:
+                df = pd.read_parquet(p)
+        except Exception:
+            return []
+        if 'ticker' in {c.lower() for c in df.columns}:
+            col = [c for c in df.columns if c.lower() == 'ticker'][0]
+            return sorted({str(x).upper() for x in df[col].dropna().unique().tolist()})
+        return []
 
 
 def _normalize_ohlcv_df(df: pd.DataFrame, ticker: Optional[str] = None) -> Optional[pd.DataFrame]:
@@ -254,8 +296,11 @@ def infer_tickers_from_offline(path: str) -> List[str]:
     return sorted(set(f.stem.upper() for f in files))
 
 
-def prepare_windows(df: pd.DataFrame, lookback: int, horizon: int, batch_size: int = 64):
-    """Yield sliding windows for each ticker for inference."""
+def prepare_windows(df: pd.DataFrame, lookback: int, horizon: int, batch_size: int = 64, stride: int = 1):
+    """Yield sliding windows for each ticker for inference.
+
+    stride: only generate a signal every `stride` steps to reduce compute.
+    """
     for ticker in df.index.get_level_values(1).unique():
         tdf = df.xs(ticker, level=1)
         tdf = tdf.dropna()
@@ -269,6 +314,10 @@ def prepare_windows(df: pd.DataFrame, lookback: int, horizon: int, batch_size: i
             end = min(n - horizon, start + batch_size)
             batch_x, batch_x_stamp, batch_y_stamp, signal_dates = [], [], [], []
             for t in range(start, end):
+                if stride > 1:
+                    # t aligned to the first window (lookback-1) with step `stride`
+                    if ((t - (lookback - 1)) % stride) != 0:
+                        continue
                 s = t - lookback + 1
                 batch_x.append(arr[s : s + lookback])
                 batch_x_stamp.append(time_arr[s : s + lookback])
