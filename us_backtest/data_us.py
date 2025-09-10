@@ -156,19 +156,22 @@ def _normalize_ohlcv_df(df: pd.DataFrame, ticker: Optional[str] = None) -> Optio
     if df is None or df.empty:
         return None
     df = df.copy()
-    if 'date' not in [c.lower() for c in df.columns] and not isinstance(df.index, pd.DatetimeIndex):
-        # Try to parse any 'Date' column
-        for c in df.columns:
-            if str(c).lower() == 'date':
-                df[c] = pd.to_datetime(df[c])
-                df = df.set_index(c)
-                break
-    if not isinstance(df.index, pd.DatetimeIndex):
-        # Maybe the index is already datetime-like
+    # If we have a 'date' column, prefer using it as the index
+    cols_lower = [str(c).lower() for c in df.columns]
+    if 'date' in cols_lower:
+        c = [c for c in df.columns if str(c).lower() == 'date'][0]
         try:
-            df.index = pd.to_datetime(df.index)
+            df[c] = pd.to_datetime(df[c])
+            df = df.set_index(c)
         except Exception:
             return None
+    else:
+        if not isinstance(df.index, pd.DatetimeIndex):
+            # Maybe the index is already datetime-like, attempt conversion
+            try:
+                df.index = pd.to_datetime(df.index)
+            except Exception:
+                return None
     df.index.name = 'date'
     # Lowercase and underscore
     df.columns = [str(c).lower().replace(' ', '_') for c in df.columns]
@@ -183,12 +186,27 @@ def _normalize_ohlcv_df(df: pd.DataFrame, ticker: Optional[str] = None) -> Optio
     if ticker is None:
         # Try infer ticker from a column
         if 'ticker' in df.columns:
+            # If there is both an index named 'date' and a 'date' column, drop the column to avoid duplication
+            if 'date' in df.columns and isinstance(df.index, pd.DatetimeIndex) and df.index.name == 'date':
+                df = df.drop(columns=['date'])
             df = df.reset_index().set_index(['date', 'ticker']).sort_index()
         else:
             return None
     else:
+        # Robustly add ticker level without creating duplicate 'date' columns
+        df = df.copy()
+        # If 'date' exists as a column while also being the index, drop the column to avoid reset_index collisions
+        if 'date' in df.columns and isinstance(df.index, pd.DatetimeIndex) and df.index.name == 'date':
+            df = df.drop(columns=['date'])
+        # Add ticker as a new index level
         df['ticker'] = ticker
-        df = df.reset_index().set_index(['date', 'ticker']).sort_index()
+        df = df.set_index('ticker', append=True)
+        # Ensure consistent index names and sort
+        try:
+            df.index = df.index.set_names(['date', 'ticker'])
+        except Exception:
+            pass
+        df = df.sort_index()
     df['amount'] = df['close'].astype(float) * df['volume'].astype(float)
     keep_cols = [c for c in ['open', 'high', 'low', 'close', 'volume', 'amount'] if c in df.columns]
     return df[keep_cols]
