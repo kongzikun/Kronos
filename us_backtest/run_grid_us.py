@@ -56,7 +56,7 @@ def main():
     p = argparse.ArgumentParser(description="Grid search for US backtest (portfolio params) with fixed cost")
     # Data/model args
     p.add_argument("--data_source", choices=["offline", "yahoo", "stooq"], default="offline")
-    p.add_argument("--data_path", default="offline_data/nasdaq100_20230101_20250830")
+    p.add_argument("--data_path", default="offline_data/nasdaq100_20200101_20250830")
     p.add_argument("--universe", default="sp500")
     p.add_argument("--tickers_file", default="")
     p.add_argument("--start", default="2024-07-01")
@@ -217,4 +217,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
