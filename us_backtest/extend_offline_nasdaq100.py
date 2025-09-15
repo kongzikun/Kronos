@@ -31,6 +31,42 @@ def load_existing(path: Path) -> pd.DataFrame:
     return df
 
 
+def _normalize_yf_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Robustly normalize yfinance columns to [open, high, low, close, adj_close, volume]."""
+    if isinstance(df.columns, pd.MultiIndex):
+        # Try to pick the semantic name from any level
+        want = {"open": None, "high": None, "low": None, "close": None, "adj close": None, "volume": None}
+        for col in df.columns:
+            parts = [str(x).strip().lower() for x in (col if isinstance(col, tuple) else (col,))]
+            for k in list(want.keys()):
+                if k in parts:
+                    want[k] = col
+        new_df = pd.DataFrame(index=df.index)
+        for k, src in want.items():
+            if src is not None:
+                name = k.replace(" ", "_")
+                new_df[name] = df[src]
+        df = new_df
+    else:
+        # Single-level columns
+        mapping = {str(c).strip().lower().replace(" ", "_"): c for c in df.columns}
+        cols = {}
+        for k in ["open", "high", "low", "close", "adj_close", "volume"]:
+            if k in mapping:
+                cols[k] = mapping[k]
+        if cols:
+            df = df[list(cols.values())]
+            df.columns = list(cols.keys())
+    # Ensure minimum set
+    if "close" not in df.columns and "adj_close" in df.columns:
+        df["close"] = df["adj_close"]
+    if "volume" not in df.columns:
+        df["volume"] = 0.0
+    # Keep canonical order if present
+    keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
+    return df[keep]
+
+
 def download_earlier(ticker: str, start: str, end: str) -> pd.DataFrame:
     import yfinance as yf
     df = yf.download(
@@ -44,13 +80,10 @@ def download_earlier(ticker: str, start: str, end: str) -> pd.DataFrame:
     )
     if df is None or df.empty:
         return pd.DataFrame()
+    # Normalize index/columns
     df.index.name = "date"
-    df.columns = [str(c).lower().replace(" ", "_") for c in df.columns]
-    if "close" not in df.columns and "adj_close" in df.columns:
-        df["close"] = df["adj_close"]
-    if "volume" not in df.columns:
-        df["volume"] = 0.0
-    return df[[c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]]
+    df = _normalize_yf_columns(df)
+    return df
 
 
 def main():
@@ -125,4 +158,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
